@@ -1,5 +1,6 @@
 # app.py
-# 중2 함수 단원: 일차함수 그래프와 연립방정식의 해 탐구 앱
+# 중학교 2학년 함수 단원
+# 일차함수의 그래프와 연립방정식의 해 사이의 관계를 탐구하는 Streamlit 앱
 
 import streamlit as st
 import numpy as np
@@ -7,6 +8,16 @@ import matplotlib.pyplot as plt
 import sympy as sp
 import requests
 
+# 숫자와 문자 사이의 곱셈기호 생략을 처리하기 위한 import
+from sympy.parsing.sympy_parser import (
+    parse_expr,
+    standard_transformations,
+    implicit_multiplication_application
+)
+
+# -----------------------------
+# 페이지 기본 설정
+# -----------------------------
 st.set_page_config(
     page_title="일차함수 그래프와 연립방정식",
     page_icon="📈",
@@ -26,41 +37,64 @@ st.info(
 )
 
 # -----------------------------
-# 입력 예시 안내
+# 학생 입력 영역
 # -----------------------------
 st.subheader("1️⃣ 두 일차함수 입력하기")
 
 st.write("아래와 같은 형태로 입력하세요.")
-st.code("2*x + 1\n-x + 4\n0.5*x - 2")
+st.info(
+    "숫자와 문자 사이의 곱셈기호(*)는 생략할 수 있습니다.\n"
+    "예: 2x+1, -x+4, 0.5x-2"
+)
+st.code("2x+1\n-x+4\n0.5x-2")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    expr1_text = st.text_input("첫 번째 일차함수 y =", value="2*x + 1")
+    expr1_text = st.text_input("첫 번째 일차함수 y =", value="2x + 1")
 
 with col2:
     expr2_text = st.text_input("두 번째 일차함수 y =", value="-x + 4")
 
+# 사용할 문자
 x = sp.symbols("x")
 
 # -----------------------------
-# 식을 안전하게 변환하는 함수
+# 학생 입력식을 sympy 식으로 변환하는 함수
 # -----------------------------
 def parse_linear_expression(text):
     """
     학생이 입력한 문자열을 sympy 식으로 변환합니다.
-    x만 변수로 허용합니다.
+    2x+1, 0.5x-2, 3(x+1)처럼 곱셈기호를 생략한 입력도 허용합니다.
     """
+
     try:
-        expr = sp.sympify(text)
+        # 암묵적 곱셈을 허용합니다.
+        # 예: 2x -> 2*x, 3(x+1) -> 3*(x+1)
+        transformations = (
+            standard_transformations +
+            (implicit_multiplication_application,)
+        )
+
+        expr = parse_expr(
+            text,
+            transformations=transformations
+        )
+
+        # x 이외의 문자가 변수로 들어오면 오류 처리합니다.
         if expr.free_symbols - {x}:
             return None, "x 이외의 문자는 변수로 사용할 수 없습니다."
+
+        # 입력한 식이 일차식인지 확인합니다.
         degree = sp.degree(expr, x)
+
         if degree is None or degree > 1:
             return None, "일차식 또는 상수식만 입력할 수 있습니다."
-        return expr, None
+
+        return sp.expand(expr), None
+
     except Exception:
-        return None, "식을 해석할 수 없습니다. 예: 2*x + 1 처럼 입력하세요."
+        return None, "식을 해석할 수 없습니다. 예: 2x+1, -x+4, 0.5x-2"
 
 expr1, error1 = parse_linear_expression(expr1_text)
 expr2, error2 = parse_linear_expression(expr2_text)
@@ -72,11 +106,13 @@ if error2:
     st.error(f"두 번째 식 오류: {error2}")
 
 # -----------------------------
-# 두 식이 올바를 때만 실행
+# 두 식이 올바르게 입력되었을 때 실행
 # -----------------------------
 if expr1 is not None and expr2 is not None:
+
     st.subheader("2️⃣ 그래프로 확인하기")
 
+    # sympy 식을 numpy 계산용 함수로 변환합니다.
     f1 = sp.lambdify(x, expr1, "numpy")
     f2 = sp.lambdify(x, expr2, "numpy")
 
@@ -89,7 +125,7 @@ if expr1 is not None and expr2 is not None:
     ax.plot(x_values, y1_values, label=f"y = {expr1}")
     ax.plot(x_values, y2_values, label=f"y = {expr2}")
 
-    # 좌표축 표시
+    # x축, y축 표시
     ax.axhline(0, linewidth=1)
     ax.axvline(0, linewidth=1)
 
@@ -99,10 +135,26 @@ if expr1 is not None and expr2 is not None:
     ax.set_ylabel("y")
     ax.set_title("두 일차함수의 그래프")
 
-    # 교점 계산
+    # 두 그래프의 교점 계산
     solution = sp.solve(sp.Eq(expr1, expr2), x)
 
-    if len(solution) == 1:
+    # 기울기와 y절편 계산
+    a1 = sp.expand(expr1).coeff(x)
+    b1 = sp.expand(expr1).subs(x, 0)
+
+    a2 = sp.expand(expr2).coeff(x)
+    b2 = sp.expand(expr2).subs(x, 0)
+
+    # 위치관계 판단
+    if a1 == a2 and b1 == b2:
+        relation = "일치"
+    elif a1 == a2:
+        relation = "평행"
+    else:
+        relation = "한 점에서 만남"
+
+    # 교점이 하나 있을 때 그래프에 표시합니다.
+    if relation == "한 점에서 만남" and len(solution) == 1:
         x_intersection = solution[0]
         y_intersection = expr1.subs(x, x_intersection)
 
@@ -127,32 +179,31 @@ if expr1 is not None and expr2 is not None:
     # -----------------------------
     st.subheader("3️⃣ 두 그래프의 위치관계")
 
-    a1 = sp.expand(expr1).coeff(x)
-    b1 = sp.expand(expr1).subs(x, 0)
+    st.write(f"첫 번째 함수: y = {sp.sstr(expr1)}")
+    st.write(f"두 번째 함수: y = {sp.sstr(expr2)}")
 
-    a2 = sp.expand(expr2).coeff(x)
-    b2 = sp.expand(expr2).subs(x, 0)
+    if relation == "일치":
+        st.success("두 그래프는 완전히 같습니다.")
+        st.write("따라서 두 그래프 위의 모든 점이 두 식을 동시에 만족합니다.")
+        st.write("이 경우 연립방정식의 해는 무수히 많습니다.")
 
-    if a1 == a2 and b1 == b2:
-        st.success("두 그래프는 완전히 같습니다. 해가 무수히 많습니다.")
-        relation = "일치"
-    elif a1 == a2:
-        st.warning("두 그래프는 평행합니다. 교점이 없으므로 연립방정식의 해도 없습니다.")
-        relation = "평행"
+    elif relation == "평행":
+        st.warning("두 그래프는 평행합니다.")
+        st.write("두 그래프가 만나지 않으므로 교점이 없습니다.")
+        st.write("따라서 연립방정식의 해도 없습니다.")
+
     else:
-        st.success("두 그래프는 한 점에서 만납니다. 그 교점이 연립방정식의 해입니다.")
-        relation = "한 점에서 만남"
+        st.success("두 그래프는 한 점에서 만납니다.")
+        st.write("이 한 점의 좌표가 두 식을 동시에 만족하는 값입니다.")
+        st.write("따라서 이 교점의 좌표가 연립방정식의 해입니다.")
 
     # -----------------------------
     # 연립방정식과 해
     # -----------------------------
     st.subheader("4️⃣ 교점과 연립방정식의 해")
 
-    st.write("두 일차함수")
-    st.latex(f"y = {sp.latex(expr1)}")
-    st.latex(f"y = {sp.latex(expr2)}")
+    st.write("두 일차함수는 다음 연립방정식으로 나타낼 수 있습니다.")
 
-    st.write("는 다음 연립방정식과 같습니다.")
     st.latex(
         r"\begin{cases}"
         + f"y = {sp.latex(expr1)}"
@@ -162,13 +213,14 @@ if expr1 is not None and expr2 is not None:
     )
 
     if relation == "한 점에서 만남":
-        st.write("따라서 두 식의 y값이 같아지는 x를 찾으면 됩니다.")
+        st.write("두 식의 y값이 같아지는 x값을 구합니다.")
+
         st.latex(f"{sp.latex(expr1)} = {sp.latex(expr2)}")
         st.latex(f"x = {sp.latex(sp.nsimplify(x_intersection))}")
         st.latex(f"y = {sp.latex(sp.nsimplify(y_intersection))}")
 
         st.success(
-            f"연립방정식의 해는 "
+            f"따라서 연립방정식의 해는 "
             f"({sp.nsimplify(x_intersection)}, {sp.nsimplify(y_intersection)}) 입니다."
         )
 
@@ -176,7 +228,7 @@ if expr1 is not None and expr2 is not None:
         st.error("두 그래프가 만나지 않으므로 연립방정식의 해가 없습니다.")
 
     else:
-        st.info("두 그래프가 완전히 같으므로 모든 점이 해입니다. 해가 무수히 많습니다.")
+        st.info("두 그래프가 완전히 같으므로 연립방정식의 해가 무수히 많습니다.")
 
     # -----------------------------
     # 학생 탐구 질문
@@ -186,14 +238,15 @@ if expr1 is not None and expr2 is not None:
     st.markdown(
         """
         - 두 그래프가 만나는 점의 x좌표와 y좌표는 무엇인가요?
-        - 그 좌표를 두 식에 각각 대입하면 모두 참이 되나요?
+        - 그 좌표를 첫 번째 식과 두 번째 식에 각각 대입하면 모두 참이 되나요?
         - 두 그래프가 평행하면 연립방정식의 해는 어떻게 되나요?
-        - 두 그래프가 완전히 같으면 해는 몇 개일까요?
+        - 두 그래프가 완전히 같으면 연립방정식의 해는 몇 개일까요?
+        - 그래프의 교점과 연립방정식의 해는 어떤 관계가 있나요?
         """
     )
 
     # -----------------------------
-    # 문제 제공
+    # 연습 문제 제공
     # -----------------------------
     st.subheader("6️⃣ 연습 문제")
 
@@ -229,6 +282,4 @@ if expr1 is not None and expr2 is not None:
     query = f"solve y={expr1}, y={expr2}"
     wolfram_url = "https://www.wolframalpha.com/input?i=" + requests.utils.quote(query)
 
-    st.markdown(
-        f"[Wolfram Alpha에서 확인하기]({wolfram_url})"
-    )
+    st.markdown(f"[Wolfram Alpha에서 확인하기]({wolfram_url})")
